@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { zipSync, strToU8 } from "fflate";
 import { classAliases, parseSchemes, colorCss, rewriteCss } from "../src/compat/styles.js";
 import { installPlayer } from "../src/compat/player.js";
-import { repoName, normalize, excluded, fromInput, httpsUrl } from "../src/catalog.js";
+import { repoName, normalize, excluded, excludedFromListings, fromInput, httpsUrl, mergeCatalogItems } from "../src/catalog.js";
 import { dependencyOrder } from "../src/runtime.js";
-import { fromZip, localItem, localPackage, makePackage } from "../src/packages.js";
+import { fromZip, localItem, localPackage, makePackage, resolvePackage } from "../src/packages.js";
 import { codeScope, inspectScript } from "../src/loaders.js";
 import { decodeBackup, validateProfile } from "../src/transfers.js";
 
@@ -85,6 +85,59 @@ test("multi-entry manifests preserve branch, file order and distinct identities"
   assert.equal(theme.manifestBranch, "main");
   assert.match(theme.base, /\/dist\/manifest.json$/);
   assert.notEqual(script.id, theme.id);
+});
+test("listing exclusions are per entry and use the newest copy of its manifest metadata", () => {
+  const source = { repo: "a/b", branch: "main", source: "https://github.com/a/b" };
+  const [hidden, sibling, malformed] = normalize([
+    { name: "Tool", main: "tool.js", excludeFromListings: ["spotikit", 1, "other-client"] },
+    { name: "Other tool", main: "other.js", excludeFromListings: ["other-client"] },
+    { name: "Another tool", main: "another.js", excludeFromListings: "spotikit" },
+  ], source);
+  assert.deepEqual(hidden.excludeFromListings, ["spotikit", "other-client"]);
+  assert.deepEqual([hidden, sibling, malformed].map(excludedFromListings), [true, false, false]);
+  const visible = { ...hidden, excludeFromListings: [] };
+  const catalog = { ...hidden, catalogFetchedAt: 20 };
+  assert.deepEqual(mergeCatalogItems([catalog, { ...visible, catalogFetchedAt: 10 }]), [catalog]);
+  const refreshed = { ...visible, catalogFetchedAt: 30 };
+  assert.deepEqual(mergeCatalogItems([refreshed, catalog]), [refreshed]);
+});
+test("catalog variants share an installed package ID and resolve the selected manifest entry", async (t) => {
+  const source = { repo: "a/b", branch: "main", source: "https://github.com/a/b" };
+  const regular = { name: "Tool", main: "tool.js" };
+  const historical = { ...regular, name: "Tool (Historical)", branch: "historical" };
+  const localized = { ...regular, name: "Outil" };
+  const cards = normalize([regular, historical, localized], source);
+  assert.equal(new Set(cards.map((item) => item.id)).size, 1);
+  assert.deepEqual(mergeCatalogItems([...cards, ...cards]), cards);
+
+  const older = cards.map((item) => ({ ...item, catalogFetchedAt: 1 }));
+  const refreshed = { ...cards[0], catalogFetchedAt: 2 };
+  assert.deepEqual(mergeCatalogItems([...older, refreshed]), [refreshed]);
+
+  const [main, history] = ["a".repeat(40), "b".repeat(40)];
+  let manifest = [localized, regular, historical];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    switch (url) {
+      case "https://api.github.com/repos/a/b/commits/main": return Response.json({ sha: main });
+      case "https://api.github.com/repos/a/b/commits/historical": return Response.json({ sha: history });
+      case `https://raw.githubusercontent.com/a/b/${main}/manifest.json`: return Response.json(manifest);
+      case `https://raw.githubusercontent.com/a/b/${main}/tool.js`: return new Response('"regular";');
+      case `https://raw.githubusercontent.com/a/b/${history}/tool.js`: return new Response('"historical";');
+      default: throw new Error("Unexpected request: " + url);
+    }
+  });
+  const [recent, olderBranch, translation] = await Promise.all(cards.map((item) => resolvePackage(item)));
+  assert.deepEqual([recent, olderBranch, translation].map((pkg) => pkg.item.name), ["Tool", "Tool (Historical)", "Outil"]);
+  assert.deepEqual([recent, olderBranch, translation].map((pkg) => pkg.revision), [main, history, main]);
+  assert.equal(olderBranch.files[0].text, '"historical";');
+  assert.equal(recent.digest, translation.digest);
+
+  manifest = [{ ...regular, name: "Renamed Tool" }];
+  await assert.rejects(resolvePackage(cards[0]), /listing changed or was removed/);
+  await assert.rejects(resolvePackage(cards[1], undefined, { allowRename: true }), /listing changed or was removed/);
+  const renamed = await resolvePackage(cards[0], undefined, { allowRename: true });
+  assert.equal(renamed.item.name, "Renamed Tool");
+  assert.equal(renamed.digest, recent.digest);
 });
 test("direct repository and file imports respect sources and wildcard exclusions", async () => {
   assert.equal(repoName(" https://github.com/a/b.git "), "a/b");

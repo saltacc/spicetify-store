@@ -40,6 +40,34 @@ export function excluded(item, rules) {
   });
 }
 
+export function excludedFromListings(item) {
+  return Array.isArray(item.excludeFromListings) && item.excludeFromListings.includes("spotikit");
+}
+
+function manifestPackage(item) {
+  return [item.id, item.manifestBranch || item.branch || "", item.manifestPath || "manifest.json"];
+}
+
+// Several listings can share the same installed package ID.
+export function listingKey(item) {
+  return JSON.stringify([...manifestPackage(item), item.branch || "", item.name]);
+}
+
+export function mergeCatalogItems(items) {
+  const newest = new Map();
+  for (const item of items) {
+    const source = JSON.stringify(manifestPackage(item));
+    newest.set(source, Math.max(newest.get(source) ?? 0, item.catalogFetchedAt ?? 0));
+  }
+  const listings = new Map();
+  for (const item of items) {
+    if ((item.catalogFetchedAt ?? 0) === newest.get(JSON.stringify(manifestPackage(item)))) {
+      listings.set(listingKey(item), item);
+    }
+  }
+  return [...listings.values()];
+}
+
 export async function download(url, { signal, limit = MAX_BYTES, optional = false } = {}) {
   const address = httpsUrl(url);
   const timeout = AbortSignal.timeout(20000);
@@ -145,6 +173,7 @@ export function normalize(list, source) {
       version: typeof e.version === "string" ? e.version : "",
       dependencies: strings(e.dependencies),
       route: typeof e.id === "string" ? e.id : null,
+      excludeFromListings: Array.isArray(e.excludeFromListings) ? strings(e.excludeFromListings) : [],
     });
   }
   return out;

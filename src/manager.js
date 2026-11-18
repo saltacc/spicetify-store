@@ -1,6 +1,6 @@
 import storeManifest from "../spotikit.json" with { type: "json" };
 import { openLibrary, emptyState } from "./storage.js";
-import { catalogPage, fromInput, excluded, initialExclusions, json, upstream } from "./catalog.js";
+import { catalogPage, fromInput, excluded, initialExclusions, json, mergeCatalogItems, upstream } from "./catalog.js";
 import { localItem, localPackage, makePackage, packageFromReleaseFile, resolvePackage } from "./packages.js";
 import { ReleaseFileRequired } from "./releases.js";
 import { parseSchemes } from "./compat/styles.js";
@@ -278,12 +278,12 @@ export class Manager {
     if (!refresh && cached && Date.now() - cached.time < day / 4) return clean(cached);
     try {
       const result = await catalogPage(kind, page, this.ctx.signal);
+      const time = Date.now();
+      const items = result.items.map((item) => ({ ...item, catalogFetchedAt: time }));
+      const entry = { ...result, time, items };
       if (result.partial && cached) {
-        const items = new Map(cached.items.map((i) => [i.id, i]));
-        for (const item of result.items) items.set(item.id, item);
-        result.items = [...items.values()];
+        entry.items = mergeCatalogItems([...cached.items, ...items]);
       }
-      const entry = { ...result, time: Date.now() };
       await this.db?.putCache(key, entry);
       return clean(entry);
     } catch (e) {
@@ -294,12 +294,13 @@ export class Manager {
   async lookup(value) {
     const items = (await fromInput(value, this.ctx.signal)).filter((i) => !excluded(i, this.rules));
     if (!items.length) throw new Error("This source has no supported catalog entries.");
-    return items;
+    return mergeCatalogItems(items);
   }
   async saveSource(address) {
     const items = await this.lookup(address);
+    const time = Date.now();
     return this.change((s) => {
-      const saved = { address: address.trim(), items };
+      const saved = { address: address.trim(), items, time };
       s.sources = [...(s.sources || []).filter((src) => src.address !== saved.address), saved];
     });
   }
@@ -309,9 +310,11 @@ export class Manager {
     });
   }
   sourceItems(kind) {
-    return (this.state.sources || [])
-      .flatMap((src) => src.items)
-      .filter((i) => i.kind === kind && !excluded(i, this.rules));
+    return (this.state.sources || []).flatMap((src) =>
+      src.items
+        .filter((item) => item.kind === kind && !excluded(item, this.rules))
+        .map((item) => ({ ...item, catalogFetchedAt: Number.isFinite(src.time) ? src.time : 0 })),
+    );
   }
   async install(item) {
     this.allowed(item);
@@ -397,7 +400,7 @@ export class Manager {
     this.allowed(rec.item);
     let candidate;
     try {
-      const pkg = await resolvePackage(rec.item, this.ctx.signal);
+      const pkg = await resolvePackage(rec.item, this.ctx.signal, { allowRename: true });
       if (pkg.digest !== rec.selected) candidate = { pkg, from: rec.selected };
     } catch (e) {
       if (!(e instanceof ReleaseFileRequired)) throw e;
@@ -494,7 +497,7 @@ export class Manager {
       for (const entry of p.items) {
         this.allowed(entry.item);
         let pkg = await this.db.package(entry.selected);
-        if (!pkg && entry.item.source) pkg = await resolvePackage(entry.item, this.ctx.signal);
+        if (!pkg && entry.item.source) pkg = await resolvePackage(entry.item, this.ctx.signal, { allowRename: true });
         if (!pkg || pkg.digest !== entry.selected || pkg.item.id !== entry.item.id)
           throw new Error(
             "Exact revision unavailable for " +

@@ -1,5 +1,6 @@
 import { strToU8 } from "fflate";
 import manifest from "../spotikit.json" with { type: "json" };
+import { excludedFromListings, listingKey, mergeCatalogItems } from "./catalog.js";
 import { ReleaseFileRequired } from "./releases.js";
 
 const h = (...args) => window.SpotiKit.React.createElement(...args);
@@ -347,6 +348,7 @@ function Confirm({ text, action, tone = "accent", busy, onConfirm, close }) {
 }
 function Choices({ manager, item, run, close, busy, openRelease }) {
   const rec = manager.state.installs.find((r) => r.item.id === item.id);
+  const sameListing = rec && listingKey(rec.item) === listingKey(item);
   const repo = item.repo ? "https://github.com/" + item.repo : item.source;
   return (
     <>
@@ -355,7 +357,7 @@ function Choices({ manager, item, run, close, busy, openRelease }) {
           <Icon name={item.kind} size={13} stroke={2.2} />
           {kindName[item.kind]}
         </span>
-        {rec && (
+        {sameListing && (
           <span className="ss-kind-chip ss-chip-installed">
             <Icon name="check" size={12} stroke={3} />
             Installed
@@ -372,7 +374,7 @@ function Choices({ manager, item, run, close, busy, openRelease }) {
           <dt>Compatibility</dt>
           <dd>Untested on this Spotify build</dd>
         </div>
-        {rec && (
+        {sameListing && (
           <div className="ss-meta-wide">
             <dt>Selected revision</dt>
             <dd>
@@ -386,7 +388,7 @@ function Choices({ manager, item, run, close, busy, openRelease }) {
             <dd>{item.dependencies.join(", ")}</dd>
           </div>
         )}
-        {(rec?.codeScope === "runtime" || rec?.codeScope === "captured") && (
+        {sameListing && (rec.codeScope === "runtime" || rec.codeScope === "captured") && (
           <div className="ss-meta-wide">
             <dt>Executable files</dt>
             <dd>{rec.codeScope === "runtime"
@@ -394,7 +396,7 @@ function Choices({ manager, item, run, close, busy, openRelease }) {
               : "The downloaded script and its loader are stored together in this revision."}</dd>
           </div>
         )}
-        {!!rec?.skippedSchemes?.length && (
+        {sameListing && !!rec.skippedSchemes?.length && (
           <div className="ss-meta-wide">
             <dt>Skipped color schemes</dt>
             <dd>{rec.skippedSchemes.join(". ")}</dd>
@@ -414,6 +416,9 @@ function Choices({ manager, item, run, close, busy, openRelease }) {
             </a>
           )}
         </div>
+      )}
+      {rec && !sameListing && (
+        <p className="ss-note">This package is installed as {rec.item.name}. Remove it from Installed to choose this listing.</p>
       )}
       {!rec && (
         <>
@@ -500,9 +505,7 @@ export function Store({ manager: m }) {
       const result = await m.browse(category, page, force);
       if (seq !== version.current) return;
       setCatalog((prev) => ({
-        items: [
-          ...new Map([...(page === 1 ? [] : prev.items), ...result.items].map((i) => [i.id, i])).values(),
-        ],
+        items: mergeCatalogItems([...(page === 1 ? [] : prev.items), ...result.items]),
         more: result.more,
         page,
       }));
@@ -548,24 +551,22 @@ export function Store({ manager: m }) {
       .toLowerCase()
       .includes(query.trim().toLowerCase());
   const installed = m.state.installs,
-    installIds = new Set(installed.map((r) => r.item.id));
-  const browseItems = [
-    ...new Map(
-      [...(kind === "extension" ? m.starter() : []), ...m.sourceItems(kind), ...catalog.items].map((i) => [
-        i.id,
-        i,
-      ]),
-    ).values(),
-  ].filter(matches);
+    installedListings = new Set(installed.map((r) => listingKey(r.item)));
+  const browseItems = mergeCatalogItems([
+    ...(kind === "extension" ? m.starter() : []),
+    ...m.sourceItems(kind),
+    ...catalog.items,
+  ]).filter((item) => !excludedFromListings(item) && matches(item));
   const changeTab = (t) => {
     setTab(t);
     setQuery("");
     setError("");
     setMessage("");
   };
-  const card = (i, n) => (
-    <ItemCard key={i.id} index={n} item={i} installed={installIds.has(i.id)} open={show} />
-  );
+  const card = (item, index) => {
+    const key = listingKey(item);
+    return <ItemCard key={key} index={index} item={item} installed={installedListings.has(key)} open={show} />;
+  };
   const notice = error ? (
     <p role="alert" className="ss-error">
       {error}
@@ -670,6 +671,9 @@ export function Store({ manager: m }) {
                 Refresh catalog
               </button>
             </div>
+            {kind === "extension" && (
+              <div className="ss-note">Some developers have chosen to hide their extensions from SpotiKit’s catalog.</div>
+            )}
             {catalogError && (
               <p className="ss-note" role="status">
                 {catalogError}
@@ -1202,7 +1206,7 @@ export function Store({ manager: m }) {
               {found.length > 0 && (
                 <div className="ss-found-list">
                   {found.map((i, n) => (
-                    <button className="ss-found" key={i.id} style={{ "--i": n }} onClick={() => show(i)}>
+                    <button className="ss-found" key={listingKey(i)} style={{ "--i": n }} onClick={() => show(i)}>
                       <span className={"ss-found-icon ss-" + i.kind}>
                         <Icon name={i.kind} size={16} />
                       </span>

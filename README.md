@@ -32,6 +32,23 @@ The alias adapter uses the bundled Spicetify class dictionary, the active SpotiK
 
 **Running** means the store started the cached entry. For simple HTTPS script loaders, installation also caches the executable payload. A change in those bytes appears in **Updates**, and pinning, backup and rollback include them. **External code unverified** means the entry started and can load more code at runtime. For that entry, **Pin stored files only** keeps the local revision while the external provider controls additional code. Existing installs keep their selected files. Use **Check** in Updates to discover a newly cacheable payload.
 
+## Hide an extension from SpotiKit listings
+
+Add `"excludeFromListings": ["spotikit"]` to your existing `manifest.json` entry. The array holds client IDs as strings. If a manifest lists several extensions, add the field to each entry you want to hide.
+
+~~~json
+{
+  "name": "My Extension",
+  "description": "An extension for Spicetify.",
+  "main": "extension.js",
+  "preview": "preview.png",
+  "readme": "README.md",
+  "excludeFromListings": ["spotikit"]
+}
+~~~
+
+SpotiKit’s Spicetify Store hides matching entries from **Browse**, including saved catalog sources. The change takes effect after a manifest refresh. Users can still import the package explicitly, and existing installations continue to run and receive updates.
+
 ## Updates, profiles, and recovery
 
 - **Updates** checks upstream content, shows its revision, and keeps the prior installed revision for rollback. Pin a revision or opt an item into automatic updates. Executable changes may require reloading Spotify. The store never starts two revisions of one legacy script in a page session.

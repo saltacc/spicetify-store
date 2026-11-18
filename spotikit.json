@@ -2,7 +2,7 @@
   "type": "extension",
   "name": "Spicetify Store",
   "description": "Browse, install, and manage Spicetify extensions, themes, snippets, and custom apps in Spotify.",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "spotify": "1.3.9.2055",
   "tags": [
     "extensions",

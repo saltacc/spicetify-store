@@ -98,9 +98,14 @@ try {
   page.on("pageerror", (e) => jsErrors.push(e.message));
   let offline = false,
     revision = 1,
-    failUpdate = false;
+    failUpdate = false,
+    includePublisher = false,
+    hidePublisher = false;
   const textCss = "body{--ss-fixture:yes}";
   const url = "https://fixtures.example.test/fixture.js";
+  const publisherRepo = "fixtures/publisher";
+  const historicalRef = "b".repeat(40);
+  const publisherSource = { full_name: publisherRepo, default_branch: "main", html_url: "https://github.com/" + publisherRepo };
   await context.route(/^https:/, async (route) => {
     if (offline) {
       await route.abort();
@@ -109,8 +114,12 @@ try {
     const u = new URL(route.request().url()),
       name = u.pathname.split("/").pop();
     const options = { headers: { "access-control-allow-origin": "*" } };
-    if (u.pathname === "/repos/spicetify/cli/commits/main")
+    if (["/repos/spicetify/cli/commits/main", "/repos/" + publisherRepo + "/commits/main"].includes(u.pathname))
       await route.fulfill({ ...options, json: { sha: pinned } });
+    else if (u.pathname === "/repos/" + publisherRepo + "/commits/historical")
+      await route.fulfill({ ...options, json: { sha: historicalRef } });
+    else if (u.pathname === "/repos/" + publisherRepo)
+      await route.fulfill({ ...options, json: publisherSource });
     else if (originals.has(name))
       await route.fulfill({ ...options, body: originals.get(name), contentType: "text/javascript" });
     else if (u.href === url)
@@ -126,6 +135,22 @@ try {
         body: "window.fixtureRevision=" + revision,
         contentType: "text/javascript",
       });
+    else if (u.pathname.startsWith("/" + publisherRepo + "/") && name === "manifest.json")
+      await route.fulfill({ ...options, json: [
+        { name: "Unlisted publisher fixture", main: "unlisted.js", excludeFromListings: ["spotikit"] },
+        { name: "Publisher listing fixture", main: "publisher.js", excludeFromListings: hidePublisher ? ["spotikit"] : [] },
+        { name: "Listed sibling fixture", main: "sibling.js", excludeFromListings: ["other-client"] },
+        { name: "Branch fixture", main: "branch-fixture.js" },
+        { name: "Branch fixture (Historical)", main: "branch-fixture.js", branch: "historical" },
+      ] });
+    else if (name === "branch-fixture.js") {
+      const variant = u.pathname.includes("/" + historicalRef + "/") ? "historical" : "main";
+      await route.fulfill({ ...options, contentType: "text/javascript", body:
+        `window.catalogBranchFixture = ${JSON.stringify(variant)};` });
+    }
+    else if (name === "unlisted.js")
+      await route.fulfill({ ...options, contentType: "text/javascript", body:
+        "window.unlistedScriptRan = true;" });
     else if (u.pathname.endsWith("/theme.json"))
       await route.fulfill({
         ...options,
@@ -137,9 +162,10 @@ try {
         "[Rose]\nbutton=fc9d90\n[Unavailable]\ntext=${ENV}\n[Mint]\nmain=00000000\nbutton=${xrdb:green:40d5aa}" });
     else if (name === "blacklist.json")
       await route.fulfill({ ...options, json: { repos: ["https://github.com/sample/excluded"] } });
-    else if (name === "repositories")
-      await route.fulfill({ ...options, json: { total_count: 0, items: [] } });
-    else await route.fulfill({ ...options, status: 404, body: "" });
+    else if (name === "repositories") {
+      const items = includePublisher && u.searchParams.get("q") === "topic:spicetify-extensions" ? [publisherSource] : [];
+      await route.fulfill({ ...options, json: { total_count: items.length, items } });
+    } else await route.fulfill({ ...options, status: 404, body: "" });
   });
   const button = (name, scope = page) => scope.getByRole("button", { name, exact: true });
   const nav = (name) =>
@@ -665,6 +691,64 @@ try {
   console.log(
     "PASS fresh-profile offline backup restore, explicit activation, and pre-upgrade export import",
   );
+  includePublisher = true;
+  await page.goto(base);
+  await ready();
+  const listingsNotice = page.getByText("Some developers have chosen to hide their extensions from SpotiKit’s catalog.", { exact: true });
+  await listingsNotice.waitFor();
+  const browseCard = (name) => page.locator(".ss-grid").getByRole("button", { name });
+  const listedSibling = browseCard(/Listed sibling fixture/);
+  const changingListing = browseCard(/Publisher listing fixture/);
+  const unlisted = browseCard(/Unlisted publisher fixture/);
+  await button("Refresh catalog").click();
+  await listedSibling.waitFor();
+  await changingListing.waitFor();
+  assert.equal(await unlisted.count(), 0);
+  await button("Import package").click();
+  await dialog().getByLabel("Package source").fill(publisherRepo);
+  await button("Find packages", dialog()).click();
+  await button("Save catalog source", dialog()).click();
+  await dialog().waitFor({ state: "hidden" });
+  assert.equal(await unlisted.count(), 0);
+  await installURL(publisherRepo, "Unlisted publisher fixture");
+  assert.equal(await page.evaluate(() => window.unlistedScriptRan), true);
+  hidePublisher = true;
+  await button("Refresh catalog").click();
+  await listedSibling.waitFor();
+  await changingListing.waitFor({ state: "detached" });
+  offline = true;
+  await page.reload();
+  await ready();
+  await listedSibling.waitFor();
+  assert.equal(await unlisted.count(), 0);
+  await changingListing.waitFor({ state: "detached" });
+  await nav("Installed");
+  await listingsNotice.waitFor({ state: "detached" });
+  await row("Unlisted publisher fixture").getByText("Extension · Running").waitFor();
+  assert.equal(await page.evaluate(() => window.unlistedScriptRan), true);
+  offline = false;
+  hidePublisher = false;
+  await nav("Settings");
+  await button("Refresh source").click();
+  await page.getByText("Source refreshed.", { exact: true }).waitFor();
+  await nav("Browse");
+  await changingListing.waitFor();
+  assert.equal(await unlisted.count(), 0);
+  console.log("PASS listing exclusions across catalog and saved sources, manual import, and offline startup");
+
+  const regular = page.locator(".ss-card").filter({ has: page.getByText("Branch fixture", { exact: true }) });
+  const historical = browseCard(/Branch fixture \(Historical\)/);
+  await regular.waitFor();
+  await historical.click();
+  await button("Install extension", dialog()).click();
+  await dialog().waitFor({ state: "hidden" });
+  await page.waitForFunction(() => window.catalogBranchFixture === "historical");
+  await historical.locator(".ss-art-badge").waitFor();
+  assert.equal(await regular.locator(".ss-art-badge").count(), 0);
+  await regular.click();
+  await dialog().getByText(/This package is installed as Branch fixture \(Historical\)/).waitFor();
+  assert.equal(await button("Install extension", dialog()).count(), 0);
+  console.log("PASS both catalog variants are visible and the selected branch is installed");
   assert.deepEqual(
     jsErrors.filter((e) => !e.includes("child fixture failed")),
     [],

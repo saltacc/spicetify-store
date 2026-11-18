@@ -1,6 +1,6 @@
 import { unzipSync } from "fflate";
 import { parse, walk } from "css-tree";
-import { commit, download, httpsUrl, json, MAX_BYTES, normalize, raw, upstream } from "./catalog.js";
+import { commit, download, httpsUrl, json, listingKey, MAX_BYTES, normalize, raw, upstream } from "./catalog.js";
 import { parseSchemes, rewriteCss } from "./compat/styles.js";
 import { codeScope, executable, inspectScript } from "./loaders.js";
 import { appNames, appSlug, findAppRelease, ReleaseFileRequired } from "./releases.js";
@@ -331,7 +331,19 @@ async function builtApp(item, apps, original, signal) {
   );
 }
 
-async function readPublishedPackage(original, signal) {
+function selectManifestEntry(entries, original, allowRename) {
+  const key = listingKey(original);
+  const item = entries.findLast((entry) => listingKey(entry) === key);
+  if (item) return item;
+
+  if (allowRename) {
+    const matches = entries.filter((entry) => entry.id === original.id);
+    if (matches.length === 1 && matches[0].branch === original.branch) return matches[0];
+  }
+  throw new Error("This listing changed or was removed from the source manifest. Refresh the catalog and try again.");
+}
+
+async function readPublishedPackage(original, signal, allowRename) {
   let item = validateItem(original);
   const discoverApp = item.kind === "app" && !item.spec.some((f) => f.role === "archive");
   if (discoverApp && !item.repo) throw new Error("Import a built app ZIP for this source.");
@@ -347,8 +359,7 @@ async function readPublishedPackage(original, signal) {
       source: item.source,
       manifestPath: item.manifestPath,
     });
-    item = refreshed.find((e) => e.id === item.id);
-    if (!item) throw new Error("This entry is no longer in the source manifest.");
+    item = selectManifestEntry(refreshed, item, allowRename);
     if (discoverApp) return builtApp(item, refreshed.filter((entry) => entry.kind === "app"), original, signal);
     revision = item.branch === item.manifestBranch ? rootRef : await commit(item.repo, item.branch, signal);
     base = raw(item.repo, revision, item.manifestPath || "manifest.json");
@@ -360,12 +371,11 @@ async function readPublishedPackage(original, signal) {
     item = { ...item, spec: [{ role: "style", path: "snippet.css", text: fresh.code }] };
   } else if (
     item.source &&
-    new URL(item.source).pathname.endsWith(".json") &&
+    /\.json$/i.test(new URL(item.source).pathname) &&
     !item.id.startsWith("local|")
   ) {
     const fresh = normalize(await json(item.source, { signal }), { source: item.source, kind: item.kind });
-    item = fresh.find((e) => e.id === item.id);
-    if (!item) throw new Error("This entry is no longer in the source manifest.");
+    item = selectManifestEntry(fresh, item, allowRename);
   }
   let direct;
   if (item.id.startsWith("url|") && item.source) {
@@ -424,8 +434,8 @@ async function captureLoaders(pkg, signal) {
   return files.length === pkg.files.length ? pkg : makePackage(pkg.item, files, pkg.revision);
 }
 
-export async function resolvePackage(item, signal) {
-  return captureLoaders(await readPublishedPackage(item, signal), signal);
+export async function resolvePackage(item, signal, { allowRename = false } = {}) {
+  return captureLoaders(await readPublishedPackage(item, signal, allowRename), signal);
 }
 
 export async function localPackage(file, signal) {
