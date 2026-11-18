@@ -1,7 +1,11 @@
 import { createFacade } from "./compat/index.js";
+import { isSpicyLyrics } from "./compat/spicy-lyrics.js";
 import { colorCss, defaultColors, installAliases, parseSchemes, rewriteCss } from "./compat/styles.js";
-import { executable } from "./loaders.js";
+import { scopedWindow } from "./compat/window.js";
+import { compatibilityModule } from "./compatibility.js";
+import { executable, isModuleFile } from "./loaders.js";
 import { pathLookup } from "./package-files.js";
+import { isVerifiedSpicyLyricsModule } from "./packages.js";
 
 const ledgerKey = Symbol.for("spotikit.spicetify-store.executions");
 const reserved = new Set(
@@ -127,7 +131,7 @@ export function createRuntime(host, diagnose) {
     return entry;
   }
   async function script(run, file) {
-    const isModule = file.role === "module" || /\.mjs(?:$|[?#])/i.test(file.path);
+    const isModule = isModuleFile(file);
     if (isModule && /\b(?:from\s*|import\s*\(?\s*)["']\.{1,2}\//.test(file.text))
       throw new Error("Bundle relative module imports into one file before installing.");
     const source = blobSource(run, file.text);
@@ -276,21 +280,33 @@ export function createRuntime(host, diagnose) {
       return aliases.size;
     },
     stop,
-    async activate(rec, pkg) {
+    async activate(rec, pkg, compatibilityMode = false) {
       const id = rec.item.id,
         current = active.get(id);
-      if (current?.digest === pkg.digest) {
+      if (current?.digest === pkg.digest && current.compatibilityMode === compatibilityMode) {
         if (current.scheme !== rec.scheme) renderStyles(current, pkg, rec.scheme);
         return;
       }
       stop(id);
       if (executed.has(id)) return;
-      const run = { id, digest: pkg.digest, stops: [], styles: [] };
+      const run = { id, digest: pkg.digest, compatibilityMode, stops: [], styles: [] };
       active.set(id, run);
       try {
+        let files = pkg.files.filter(executable);
+        if (isSpicyLyrics(rec.item)) {
+          const [module] = files;
+          if (files.length !== 1 || !(await isVerifiedSpicyLyricsModule(module)))
+            throw new Error("Open Updates, check Spicy Lyrics, and apply the compatible version before enabling it.");
+          if (!compatibilityMode) throw new Error("Turn on compatibility mode to run Spicy Lyrics on SpotiKit.");
+        }
+        if (compatibilityMode) {
+          const module = compatibilityModule(pkg);
+          if (!module) throw new Error("This revision needs a self-contained JavaScript module for compatibility mode.");
+          files = [{ ...module, text: scopedWindow(module.text) }];
+        }
         if (pkg.item.kind === "app") await app(run, pkg);
         renderStyles(run, pkg, rec.scheme);
-        for (const f of pkg.files.filter(executable)) {
+        for (const f of files) {
           if (closed || active.get(id) !== run) throw new Error("Activation stopped.");
           await script(run, f);
         }

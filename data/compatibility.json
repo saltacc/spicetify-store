@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "extensions": [
+    {
+      "id": "spikerko/spicy-lyrics|extension|.%2Fbuilds%2Fspicy-lyrics.mjs",
+      "revisions": [
+        "d13265add4b8bb60441240e347b7e200aa4cfae6c340ef3ba517786fc949bb25",
+        "a9ebe35d47078282311c64a814fc6bfbad104776c02c1715085745cde831fe42"
+      ]
+    }
+  ]
+}

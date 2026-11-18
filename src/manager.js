@@ -1,9 +1,11 @@
 import storeManifest from "../spotikit.json" with { type: "json" };
+import bundledCompatibility from "../data/compatibility.json" with { type: "json" };
 import { openLibrary, emptyState } from "./storage.js";
-import { catalogPage, fromInput, excluded, initialExclusions, json, mergeCatalogItems, upstream } from "./catalog.js";
+import { catalogPage, download, fromInput, excluded, initialExclusions, json, mergeCatalogItems, upstream } from "./catalog.js";
 import { localItem, localPackage, makePackage, packageFromReleaseFile, resolvePackage } from "./packages.js";
 import { ReleaseFileRequired } from "./releases.js";
 import { parseSchemes } from "./compat/styles.js";
+import { compatibilityModule, compatibilityUrl, readCompatibilityRules, retainedCompatibility } from "./compatibility.js";
 import { codeScope } from "./loaders.js";
 import { createRuntime, dependencyOrder } from "./runtime.js";
 import { snapshot, validateProfile, decodeBackup, readLegacy, decodeLegacy } from "./transfers.js";
@@ -23,6 +25,7 @@ function switchTheme(state, rec) {
 }
 function describeRevision(rec, pkg) {
   rec.codeScope = pkg.codeScope ?? codeScope(pkg.files);
+  rec.compatibilitySupported = !!compatibilityModule(pkg);
   rec.skippedSchemes = [];
   rec.schemes = pkg.files.filter((f) => f.role === "schemes")
     .flatMap((f) => [...parseSchemes(f.text, rec.skippedSchemes).keys()]);
@@ -35,6 +38,9 @@ function choose(rec, pkg) {
     rec.selected = pkg.digest;
   }
   rec.item = pkg.item;
+  const compatibility = retainedCompatibility(rec);
+  if (Object.keys(compatibility).length) rec.compatibility = compatibility;
+  else delete rec.compatibility;
   describeRevision(rec, pkg);
 }
 function starterItems() {
@@ -67,6 +73,7 @@ export class Manager {
     this.listeners = new Set();
     this.tasks = Promise.resolve();
     this.rules = initialExclusions;
+    this.compatibilityRules = readCompatibilityRules(bundledCompatibility);
     this.errors = new Map();
     this.candidates = new Map();
     this.log = [];
@@ -98,10 +105,10 @@ export class Manager {
         return;
       }
       this.state = await this.db.state();
-      // Older entries predate loader scope and per-scheme diagnostics. Derive
+      // Older entries predate compatibility and file diagnostics. Derive
       // them from the selected cache, including for disabled and pinned items.
       for (const rec of this.state.installs) {
-        if (rec.codeScope && rec.skippedSchemes) continue;
+        if (rec.codeScope && rec.skippedSchemes && typeof rec.compatibilitySupported === "boolean") continue;
         const pkg = await this.db.package(rec.selected);
         if (pkg) {
           try { describeRevision(rec, pkg); } catch (e) { this.diagnose(rec.item.id, e.message); }
@@ -122,6 +129,8 @@ export class Manager {
         this.notify();
         return;
       }
+      await this.loadCompatibility();
+      if (this.closed) return;
       this.runtime.init();
       if (this.state.installs.some((r) => r.enabled))
         localStorage.setItem(prefix + "attempts", String(attempts + 1));
@@ -143,6 +152,27 @@ export class Manager {
       }
     }
     this.notify();
+  }
+  async loadCompatibility() {
+    const key = "compatibility-v1";
+    try {
+      const cached = await this.db.cache(key);
+      if (cached) this.compatibilityRules = readCompatibilityRules(cached);
+    } catch {
+      // Use the bundled list when the saved list is unavailable.
+    }
+    if (this.closed) return;
+    const signal = AbortSignal.any([this.ctx.signal, AbortSignal.timeout(2200)]);
+    try {
+      const blob = await download(compatibilityUrl, { signal, limit: 64 * 1024 });
+      const feed = JSON.parse(await blob.text());
+      const rules = readCompatibilityRules(feed);
+      if (this.closed) return;
+      this.compatibilityRules = rules;
+      await this.db.putCache(key, feed);
+    } catch {
+      // Keep the last valid local rules when the service or cache is unavailable.
+    }
   }
   queue(fn) {
     const task = this.tasks.then(() => {
@@ -191,7 +221,7 @@ export class Manager {
         }
         const pkg = await this.db.package(rec.selected);
         if (!pkg || pkg.item.id !== id) throw new Error("Missing cached files. Reinstall this package.");
-        await this.runtime.activate(rec, pkg);
+        await this.runtime.activate(rec, pkg, this.compatibilityMode(rec));
         if (this.runtime.active.has(id)) started.add(id);
       } catch (e) {
         this.runtime.stop(id);
@@ -389,6 +419,23 @@ export class Manager {
       keyOf(s, id)[field] = !!value;
     });
   }
+  compatibilityMode(rec) {
+    return rec.compatibilitySupported === true && (rec.compatibility?.[rec.selected] ??
+      (this.compatibilityRules.get(rec.item.id)?.has(rec.selected) === true));
+  }
+  setCompatibilityMode(id, value) {
+    return this.change((s) => {
+      const rec = keyOf(s, id);
+      if (!rec.compatibilitySupported) throw new Error("Compatibility mode requires a supported JavaScript module.");
+      if (value !== null && typeof value !== "boolean") throw new Error("Invalid compatibility setting.");
+      const choices = retainedCompatibility(rec);
+      if (value === null) delete choices[rec.selected];
+      else choices[rec.selected] = value;
+      if (Object.keys(choices).length) rec.compatibility = choices;
+      else delete rec.compatibility;
+      this.errors.delete(id);
+    });
+  }
   autoCheck(value) {
     return this.change((s) => {
       s.autoCheck = !!value;
@@ -506,7 +553,11 @@ export class Manager {
           );
         staged.push(pkg);
         const prior = s.installs.find((r) => r.item.id === entry.item.id);
-        const rec = { ...prior, ...entry, selected: prior?.selected, previous: prior?.previous };
+        const compatibility = { ...prior?.compatibility };
+        delete compatibility[entry.selected];
+        Object.assign(compatibility, entry.compatibility);
+        const rec = { ...prior, ...entry, compatibility,
+          selected: prior?.selected, previous: prior?.previous };
         choose(rec, pkg);
         order.push(rec);
       }
@@ -594,10 +645,12 @@ export class Manager {
       aliases: this.runtime.aliasCount,
       capabilities: this.runtime.api?.test?.(),
       installs: this.state.installs.map((r) => ({
+        id: r.item.id,
         name: r.item.name,
         selected: r.selected,
         running: this.runtime.active.get(r.item.id)?.digest || this.runtime.executed.get(r.item.id),
         status: this.status(r),
+        compatibilityMode: r.compatibilitySupported ? this.compatibilityMode(r) : undefined,
         codeScope: r.codeScope,
         skippedSchemes: r.skippedSchemes,
       })),

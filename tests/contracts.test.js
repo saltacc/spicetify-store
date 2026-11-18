@@ -3,11 +3,68 @@ import assert from "node:assert/strict";
 import { zipSync, strToU8 } from "fflate";
 import { classAliases, parseSchemes, colorCss, rewriteCss } from "../src/compat/styles.js";
 import { installPlayer } from "../src/compat/player.js";
+import { spicyLyricsRelease } from "../src/compat/spicy-lyrics.js";
+import { scopedWindow } from "../src/compat/window.js";
+import { compatibilityModule, readCompatibilityRules } from "../src/compatibility.js";
 import { repoName, normalize, excluded, excludedFromListings, fromInput, httpsUrl, mergeCatalogItems } from "../src/catalog.js";
 import { dependencyOrder } from "../src/runtime.js";
 import { fromZip, localItem, localPackage, makePackage, resolvePackage } from "../src/packages.js";
 import { codeScope, inspectScript } from "../src/loaders.js";
 import { decodeBackup, validateProfile } from "../src/transfers.js";
+
+test("a scoped module sees the live Store API through its own window binding", () => {
+  const page = {
+    Spicetify: {},
+    document: {},
+    matchMedia() {
+      assert.equal(this, page);
+      return { matches: true };
+    },
+  };
+  const host = {};
+  Object.defineProperty(page, "SpotiKit", { value: host });
+  const source = `
+    const detected = Object.getOwnPropertyNames(window).some(k => k.toLowerCase() === "spotikit");
+    window.SpicyLyrics = { scoped: !detected };
+    return {
+      detectsHost: detected || "SpotiKit" in window,
+      sameAPI: window.Spicetify === globalThis.Spicetify,
+      sameDocument: window.document === globalThis.document,
+      matches: window.matchMedia("(min-width: 1px)").matches,
+    };`;
+  const run = new Function("globalThis", scopedWindow(source));
+  assert.deepEqual(run(page), { detectsHost: false, sameAPI: true, sameDocument: true, matches: true });
+  assert.equal(page.SpotiKit, host);
+  assert.deepEqual(page.SpicyLyrics, { scoped: true });
+});
+
+test("compatibility rules match exact revisions and require a supported module", () => {
+  const item = localItem("Compatibility fixture", "extension", "compatibility-fixture");
+  const digest = "a".repeat(64);
+  const feed = { version: 1, extensions: [{ id: item.id, revisions: [digest] }] };
+  const rules = readCompatibilityRules(feed);
+  assert.equal(rules.get(item.id).has(digest), true);
+  assert.equal(rules.get(item.id).has("b".repeat(64)), false);
+  assert.throws(() => readCompatibilityRules({ ...feed, version: 2 }), /Invalid compatibility list/);
+  assert.throws(() => readCompatibilityRules({ version: 1, extensions: [{ id: item.id, revisions: ["latest"] }] }), /Invalid compatibility entry/);
+
+  const file = { role: "script", path: "compatibility.mjs", text: "export const foo = window.fetch;" };
+  const check = (overrides) => compatibilityModule({ item, files: [{ ...file, ...overrides }] });
+  assert.deepEqual(check(), file);
+  assert.equal(check({ path: "compatibility.js" }), null);
+  assert.equal(check({ text: "import('https://fixtures.example.test/child.mjs');" }), null);
+  assert.equal(check({ text: "export const window = {};" }), null);
+});
+
+test("Spicy Lyrics download rejects a module that differs from the reviewed release", async (t) => {
+  const [item] = normalize({ name: "Spicy Lyrics", main: "./builds/spicy-lyrics.mjs" }, {
+    repo: "Spikerko/spicy-lyrics", branch: "main", source: "https://github.com/Spikerko/spicy-lyrics",
+  });
+  const request = t.mock.method(globalThis, "fetch", async () => new Response("export default 'different release';"));
+  await assert.rejects(resolvePackage(item), /no longer serving the verified Spicy Lyrics 6\.5\.10 module/);
+  assert.equal(request.mock.callCount(), 1);
+  assert.equal(request.mock.calls[0].arguments[0], spicyLyricsRelease.download);
+});
 
 test("Player.data distinguishes player initialization from an empty playback update", async () => {
   const listeners = new Map();
@@ -309,15 +366,19 @@ test("ZIP lookup preserves case-sensitive siblings and refuses ambiguous or dupl
 });
 test("backup verification is atomic, detects changed bytes and disables imported scripts", async () => {
   const item = localItem("Example", "extension", "demo"),
-    pkg = await makePackage(item, [{ role: "script", path: "example.js", text: "void 0" }]);
+    pkg = await makePackage(item, [{ role: "script", path: "example.mjs", text: "void 0" }]);
+  const compatibility = { [pkg.digest]: false };
   const data = {
     version: 1,
     format: "spicetify-store-backup",
     packages: [pkg],
     profiles: [],
-    installs: [{ item, selected: pkg.digest, enabled: true }],
+    installs: [{ item, selected: pkg.digest, enabled: true, compatibility }],
   };
-  assert.equal((await decodeBackup(data)).installs[0].enabled, false);
+  const [restored] = (await decodeBackup(data)).installs;
+  assert.equal(restored.enabled, false);
+  assert.deepEqual(restored.compatibility, compatibility);
+  assert.deepEqual(validateProfile({ name: "Saved", items: data.installs }).items[0].compatibility, compatibility);
   const corrupt = structuredClone(data);
   corrupt.packages[0].files[0].text = "void 1";
   await assert.rejects(decodeBackup(corrupt), /integrity/);

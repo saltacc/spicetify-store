@@ -1,6 +1,7 @@
 import { unzipSync } from "fflate";
 import { parse, walk } from "css-tree";
 import { commit, download, httpsUrl, json, listingKey, MAX_BYTES, normalize, raw, upstream } from "./catalog.js";
+import { isSpicyLyrics, spicyLyricsRelease } from "./compat/spicy-lyrics.js";
 import { parseSchemes, rewriteCss } from "./compat/styles.js";
 import { codeScope, executable, inspectScript } from "./loaders.js";
 import { appNames, appSlug, findAppRelease, ReleaseFileRequired } from "./releases.js";
@@ -29,6 +30,10 @@ function ext(path) {
 export async function sha(text) {
   const bytes = await crypto.subtle.digest("SHA-256", typeof text === "string" ? encoder.encode(text) : text);
   return [...new Uint8Array(bytes)].map((n) => n.toString(16).padStart(2, "0")).join("");
+}
+export async function isVerifiedSpicyLyricsModule(file) {
+  return file?.role === "module" && file.path === spicyLyricsRelease.path &&
+    typeof file.text === "string" && spicyLyricsRelease.sha256.includes(await sha(file.text));
 }
 function dataUrl(bytes, mime) {
   let binary = "";
@@ -435,6 +440,18 @@ async function captureLoaders(pkg, signal) {
 }
 
 export async function resolvePackage(item, signal, { allowRename = false } = {}) {
+  if (isSpicyLyrics(item)) {
+    validateItem(item);
+    // The official endpoint selects a release at request time. Only store the reviewed one.
+    const file = {
+      role: "module",
+      path: spicyLyricsRelease.path,
+      text: await readText(await download(spicyLyricsRelease.download, { signal })),
+    };
+    if (!(await isVerifiedSpicyLyricsModule(file)))
+      throw new Error(`The publisher is no longer serving the verified Spicy Lyrics ${spicyLyricsRelease.version} module.`);
+    return makePackage({ ...item, version: spicyLyricsRelease.version }, [file], spicyLyricsRelease.version);
+  }
   return captureLoaders(await readPublishedPackage(item, signal, allowRename), signal);
 }
 

@@ -744,6 +744,25 @@ export function Store({ manager: m }) {
                         {kindName[r.item.kind]} · {status}
                       </small>
                       {m.errors.has(r.item.id) && <p className="ss-error">{m.errors.get(r.item.id)}</p>}
+                      {r.compatibilitySupported && (
+                        <div className="ss-switches">
+                          <label className="ss-switch">
+                            <input
+                              type="checkbox"
+                              checked={m.compatibilityMode(r)}
+                              disabled={busy}
+                              onChange={(e) => run(() => m.setCompatibilityMode(r.item.id, e.target.checked))}
+                            />
+                            <span>Compatibility mode</span>
+                          </label>
+                          {r.compatibility?.[r.selected] !== undefined ? (
+                            <button className="ss-sm ss-ghost" disabled={busy}
+                              onClick={() => run(() => m.setCompatibilityMode(r.item.id, null))}>
+                              Use automatic setting
+                            </button>
+                          ) : m.compatibilityMode(r) && <small className="ss-muted">Automatic</small>}
+                        </div>
+                      )}
                       {!!r.schemes?.length && (
                         <label className="ss-field-inline">
                           <span>Color scheme</span>

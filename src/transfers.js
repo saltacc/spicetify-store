@@ -1,6 +1,6 @@
 import { makePackage, validateItem, localItem } from "./packages.js";
+import { isDigest, retainedCompatibility } from "./compatibility.js";
 
-const isDigest = (v) => typeof v === "string" && /^[a-f\d]{64}$/.test(v);
 export function validateProfile(profile) {
   if (
     !profile ||
@@ -17,6 +17,7 @@ export function validateProfile(profile) {
     if (ids.has(item.id) || !isDigest(entry.selected))
       throw new Error("A profile contains duplicate items or an invalid revision.");
     ids.add(item.id);
+    const compatibility = retainedCompatibility({ selected: entry.selected, compatibility: entry.compatibility });
     return {
       item,
       selected: entry.selected,
@@ -24,6 +25,7 @@ export function validateProfile(profile) {
       scheme: typeof entry.scheme === "string" ? entry.scheme : "",
       pinned: entry.pinned === true,
       auto: entry.auto === true,
+      ...(Object.keys(compatibility).length ? { compatibility } : {}),
     };
   });
   if (items.filter((r) => r.enabled && r.item.kind === "theme").length > 1)
@@ -69,10 +71,12 @@ export async function decodeBackup(data) {
     const pkg = requirePackage(r.item.id, r.selected),
       previous = data.installs[index].previous;
     if (previous) requirePackage(r.item.id, previous);
+    const compatibility = retainedCompatibility({ ...data.installs[index], selected: r.selected, previous });
     return {
       ...r,
       item: pkg.item,
       previous: previous || null,
+      ...(Object.keys(compatibility).length ? { compatibility } : {}),
       enabled: false,
       previousScheme:
         typeof data.installs[index].previousScheme === "string" ? data.installs[index].previousScheme : "",

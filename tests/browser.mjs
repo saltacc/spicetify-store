@@ -8,6 +8,8 @@ import os from "node:os";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { unzipSync, zipSync, strToU8 } from "fflate";
+import { compatibilityUrl } from "../src/compatibility.js";
+import { makePackage } from "../src/packages.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url)),
   repo = path.resolve(root, "../..");
@@ -103,6 +105,14 @@ try {
     hidePublisher = false;
   const textCss = "body{--ss-fixture:yes}";
   const url = "https://fixtures.example.test/fixture.js";
+  const scopedUrl = "https://fixtures.example.test/scoped.mjs";
+  const scopedItem = { id: "url|" + scopedUrl, kind: "extension", name: "scoped.mjs",
+    source: scopedUrl, spec: [{ role: "script", path: scopedUrl }] };
+  let scopedText = `window.scopedFixture = { seesHost: 'SpotiKit' in window, realHost: 'SpotiKit' in globalThis };
+    export {};`;
+  const scopedRevision = (await makePackage(scopedItem, [
+    { ...scopedItem.spec[0], text: scopedText },
+  ])).digest;
   const publisherRepo = "fixtures/publisher";
   const historicalRef = "b".repeat(40);
   const publisherSource = { full_name: publisherRepo, default_branch: "main", html_url: "https://github.com/" + publisherRepo };
@@ -114,7 +124,11 @@ try {
     const u = new URL(route.request().url()),
       name = u.pathname.split("/").pop();
     const options = { headers: { "access-control-allow-origin": "*" } };
-    if (["/repos/spicetify/cli/commits/main", "/repos/" + publisherRepo + "/commits/main"].includes(u.pathname))
+    if (u.href === compatibilityUrl)
+      await route.fulfill({ ...options, json: { version: 1, extensions: [{ id: scopedItem.id, revisions: [scopedRevision] }] } });
+    else if (u.href === scopedUrl)
+      await route.fulfill({ ...options, body: scopedText, contentType: "text/javascript" });
+    else if (["/repos/spicetify/cli/commits/main", "/repos/" + publisherRepo + "/commits/main"].includes(u.pathname))
       await route.fulfill({ ...options, json: { sha: pinned } });
     else if (u.pathname === "/repos/" + publisherRepo + "/commits/historical")
       await route.fulfill({ ...options, json: { sha: historicalRef } });
@@ -749,6 +763,50 @@ try {
   await dialog().getByText(/This package is installed as Branch fixture \(Historical\)/).waitFor();
   assert.equal(await button("Install extension", dialog()).count(), 0);
   console.log("PASS both catalog variants are visible and the selected branch is installed");
+
+  await button("Close dialog", dialog()).click();
+  await installURL(scopedUrl, "scoped.mjs");
+  await nav("Installed");
+  const scopedRow = row("scoped.mjs");
+  const mode = scopedRow.getByLabel("Compatibility mode", { exact: true });
+  await scopedRow.getByText("Automatic", { exact: true }).waitFor();
+  assert.equal(await mode.isChecked(), true);
+  assert.deepEqual(await page.evaluate(() => window.scopedFixture), { seesHost: false, realHost: true });
+  assert.equal(await row("Auto Skip Video").getByLabel("Compatibility mode").count(), 0);
+
+  await mode.click();
+  await scopedRow.getByText("Extension · Reload required", { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.scopedFixture.seesHost), false);
+  offline = true;
+  await page.reload();
+  await ready();
+  await nav("Installed");
+  await button("Use automatic setting", scopedRow).waitFor();
+  assert.equal(await mode.isChecked(), false);
+  await page.waitForFunction(() => window.scopedFixture?.seesHost === true);
+  await button("Use automatic setting", scopedRow).click();
+  await scopedRow.getByText("Extension · Reload required", { exact: true }).waitFor();
+  await page.reload();
+  await ready();
+  await nav("Installed");
+  await scopedRow.getByText("Automatic", { exact: true }).waitFor();
+  await page.waitForFunction(() => window.scopedFixture?.seesHost === false);
+
+  offline = false;
+  scopedText += "\n// A different revision.";
+  await nav("Updates");
+  const scopedUpdate = page.locator("article").filter({ hasText: "scoped.mjs" });
+  await button("Check", scopedUpdate).click();
+  await button("Update", scopedUpdate).click();
+  await page.getByText("Update installed.", { exact: true }).waitFor();
+  await page.reload();
+  await ready();
+  await nav("Installed");
+  await mode.waitFor();
+  assert.equal(await mode.isChecked(), false);
+  await page.waitForFunction(() => window.scopedFixture?.seesHost === true);
+  console.log("PASS revision-matched compatibility feed, manual override, offline fallback, and changed revision");
+
   assert.deepEqual(
     jsErrors.filter((e) => !e.includes("child fixture failed")),
     [],

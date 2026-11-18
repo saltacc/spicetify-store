@@ -37,7 +37,7 @@ const shared = await readFiles([
   "spotikit.json", manifest.preview, "README.md", "LICENSE.md", "THIRD_PARTY_NOTICES.txt", "tools/export-legacy.js",
 ]);
 const licenses = await readFiles(await filesIn("licenses"));
-const sourceDirs = await Promise.all(["src", "data", "tools", "tests"].map(filesIn));
+const sourceDirs = await Promise.all(["src", "data", "deploy", "tools", "tests"].map(filesIn));
 const source = await readFiles(["package.json", "package-lock.json", ...sourceDirs.flat()]);
 
 // Include the installed runtime packages used by this build. The compiler and

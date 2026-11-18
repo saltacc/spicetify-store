@@ -32,6 +32,16 @@ The alias adapter uses the bundled Spicetify class dictionary, the active SpotiK
 
 **Running** means the store started the cached entry. For simple HTTPS script loaders, installation also caches the executable payload. A change in those bytes appears in **Updates**, and pinning, backup and rollback include them. **External code unverified** means the entry started and can load more code at runtime. For that entry, **Pin stored files only** keeps the local revision while the external provider controls additional code. Existing installs keep their selected files. Use **Check** in Updates to discover a newly cacheable payload.
 
+### Compatibility mode
+
+Use **Installed → Compatibility mode** to give a supported JavaScript module a module-local `window` while retaining Spotify's live APIs. The toggle is available for single, self-contained module extensions and the verified Spicy Lyrics 6.5.10 build. Changing the setting for a running package takes effect after reloading Spotify.
+
+The Store checks the [compatibility list](https://compat.5417.moe/v1/extensions.json) at startup. It matches a package ID and the full selected revision digest. Manual choices apply to that revision and take precedence. Select **Use automatic setting** to follow the list again. The most recent valid list is cached for offline startup, with the bundled list available on a fresh install. The list sets compatibility mode for a revision. Package activation continues to follow its **Enable** setting.
+
+To add a tested revision to the list, get its `id` and `selected` digest from **Settings → Export diagnostics** and add the pair to [`data/compatibility.json`](data/compatibility.json). The Cloudflare Tunnel on `5417.moe` serves the published copy from `/opt/spotikit-compatibility/extensions.json` through the loopback [nginx configuration](deploy/compatibility/nginx.conf).
+
+If you already installed the original Spicy Lyrics loader, use **Updates → Check → Update** and enable the package in **Installed**. The Store checks that the publisher is serving a verified 6.5.10 module. Spicy Lyrics requires compatibility mode on SpotiKit.
+
 ## Hide an extension from SpotiKit listings
 
 Add `"excludeFromListings": ["spotikit"]` to your existing `manifest.json` entry. The array holds client IDs as strings. If a manifest lists several extensions, add the field to each entry you want to hide.

@@ -4,6 +4,7 @@ import { simple } from "acorn-walk";
 const inspected = new WeakMap();
 const plain = { external: false, needsOrigin: false };
 export const executable = (file) => file.role === "script" || file.role === "module";
+export const isModuleFile = (file) => file.role === "module" || /\.mjs(?:$|[?#])/i.test(file.path);
 const string = (node) => node?.type === "Literal" && typeof node.value === "string" ? node.value : undefined;
 const name = (node) => node?.type === "Identifier" ? node.name : undefined;
 function member(node) {
