@@ -1,0 +1,84 @@
+Spicetify Store for SpotiKit
+
+Copyright 2026 the Spicetify Store contributors. The store's original code is
+licensed under AGPL-3.0-only. This software comes without warranty. See
+LICENSE.md for the scope of the project license.
+
+SpotiKit compatibility code
+
+Credit to NMWplays and the SpotiKit contributors. The player, services,
+controls and popup modules in src/compat adapt Framework/api/15-spicetify.js
+from SpotiKit 0.9.0. Its SpotiKit-authored code is under AGPLv3. The LGPL
+continues to apply to the inherited Spicetify portions described below.
+The bridge was adapted on 2026-11-17 and 2026-11-18 for the store's lifecycle,
+player initialization, React bindings, menus, popup rendering and cleanup.
+
+SpotiKit source https://github.com/NMWplays/SpotiKit
+SpotiKit 0.9.0 revision 9b6dc4ae9a753e9bc6e42665db037905c6333f2e
+Local macOS revision used 264cb7743aff8f25372263f38382cb59568f6438
+Adapted bridge input SHA-256 47adf011db31e87a32356238dce0c803e9eb93d0029eea04ce7029031654d5ea
+Full license in licenses/SpotiKit-AGPL-3.0.txt
+
+Spicetify code and data
+
+Copyright the Spicetify contributors. The following materials, including the
+store's adaptations of them, are provided under the GNU Lesser General Public
+License v2.1. The Spicetify Store contributors marked their modifications in
+the affected source files and the adjacent .license files for JSON data.
+
+* data/cssMap.json and data/icons.json contain the CSS class dictionary and
+  SVG path markup from spicetify/cli. SpotiKit's generator filtered class
+  entries and extracted the SVGIcons entries. On 2026-11-17 the store
+  repackaged those dictionaries as JSON.
+  https://github.com/spicetify/cli/blob/0b4653f6e6f15efd88119aad96386fb309e81477/css-map.json
+  https://github.com/spicetify/cli/blob/0b4653f6e6f15efd88119aad96386fb309e81477/src/jsHelper/spicetifyWrapper/icons.js
+  Intermediate SpotiKit file Framework/api/14-spicetify-data.js
+  Intermediate file SHA-256 24636ab8b4c55d2f38302b1b3bea846385a57c47bcb59b112b32e612554f70d4
+* The old bridge carries forward Spicetify's player event and playback helpers
+  (src/compat/player.js), keyboard mapping and shortcut helpers
+  (src/compat/controls.js), color extraction (src/compat/services.js), and
+  popup markup, styles and class-name helper (src/compat/popup.js).
+  Corresponding Spicetify wrapper sources include core.js, player-events.js,
+  helpers.js and popup.js.
+  https://github.com/spicetify/cli/tree/8c92e3067de9659caca4c9da7979da3897458e27/src/jsHelper/spicetifyWrapper
+* src/compat/tooltips.js adapts the tooltip renderer and lifecycle callbacks
+  from Spicetify v2.45.3. On 2026-11-17 the store adapted them to headless
+  Tippy, added lifecycle cleanup and changed how hidden tooltips unmount.
+  https://github.com/spicetify/cli/blob/8c92e3067de9659caca4c9da7979da3897458e27/src/jsHelper/spicetifyWrapper/popup.js
+
+Full license in licenses/Spicetify-LGPL-2.1.txt
+
+Spicetify Marketplace
+
+Copyright (c) 2021 CharlieS1103 + theRealPadster. The store includes the
+Marketplace repository exclusion list as data/exclusions.json under the MIT
+License. The copyright, permission notice and disclaimer are reproduced in
+licenses/Spicetify-Marketplace-MIT.txt.
+https://github.com/spicetify/marketplace/blob/997045224882c255b7a0685420c0f1916b94d735/resources/blacklist.json
+
+Bundled npm components
+
+The distribution includes each component's original license text and notices.
+The source archive includes the dependency files and the lockfile used to
+build this version.
+
+* acorn 8.19.0 and acorn-walk 8.3.5 (MIT) supply the JavaScript parser and
+  syntax-tree walker. See licenses/acorn.txt, licenses/acorn-walk.txt and
+  licenses/Acorn-AUTHORS.txt.
+  https://github.com/acornjs/acorn/tree/0e0ece7cc7202624d4aca531be4b515b0114b5d0/acorn
+  https://github.com/acornjs/acorn/tree/e4baf9eebe3dd9b2df6ccdfa2127ebfb423b2b8d/acorn-walk
+* css-tree 3.2.1 (MIT) parses CSS and uses mdn-data 2.27.1 (CC0-1.0) and
+  source-map-js 1.2.2 (BSD-3-Clause). See licenses/css-tree.txt,
+  licenses/mdn-data.txt and licenses/source-map-js.txt.
+  https://github.com/csstree/csstree/tree/8a6caba481be4cae4b0e8690af643ff8e59271f2
+  https://github.com/mdn/data/tree/8b1079528c02bd3eb6f180e47011cf2075849961
+  https://github.com/7rulnik/source-map-js/tree/0a1d334fd1e55a47df97fcd60a7915d46df3b08a
+* fflate 0.8.3 (MIT) reads and writes ZIP files. See licenses/fflate.txt.
+  https://github.com/101arrowz/fflate/tree/dcb3714a6c25db3a2748641019c5277413d09714
+* Tippy.js 6.3.7 and Popper Core 2.11.8 (MIT) render and position tooltips. See
+  licenses/tippy.js.txt and licenses/popperjs-core.txt.
+  https://github.com/atomiks/tippyjs/tree/0c886b47b1cabc652d15126a6b03cb6611948178
+  https://github.com/floating-ui/floating-ui/tree/92195083958c9496988ed4526b82b75b7256b5a4
+
+Community packages obtained through the store retain their authors' licenses.
+This independent extension is maintained by the Spicetify Store contributors.

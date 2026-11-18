@@ -1,0 +1,4 @@
+Copyright the Spicetify contributors. GNU Lesser General Public License v2.1.
+Source: https://github.com/spicetify/cli/blob/0b4653f6e6f15efd88119aad96386fb309e81477/css-map.json
+SpotiKit's generator filtered the dictionary. The Spicetify Store contributors
+repackaged it as JSON on 2026-11-17. See licenses/Spicetify-LGPL-2.1.txt.
