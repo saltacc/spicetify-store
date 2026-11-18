@@ -1,10 +1,12 @@
 import { parse, walk, generate, ident } from "css-tree";
 import cssMap from "../../data/cssMap.json" with { type: "json" };
-import { installLayoutMounts } from "./layout.js";
+import { installLayoutMounts, unmappedWindowsClasses } from "./layout.js";
 
 const known = {
   "Root__main-view": "main-view-panel",
   "Root__top-container": "app-layout",
+  "main-trackList-trackListRow": "track-list-row",
+  "main-card-card": "entity-card",
   "main-nowPlayingBar-left": "now-playing-bar-left",
   "main-nowPlayingBar-center": "now-playing-bar-center",
   "main-nowPlayingBar-extraControls": "now-playing-bar-extra-controls",
@@ -73,6 +75,10 @@ export function rewriteCss(source, aliases, context = "stylesheet", assetUrl) {
 
 export function installAliases(host, onStop) {
   const aliases = classAliases(host.classMap || {});
+  const windowsLayout = unmappedWindowsClasses(host);
+  if (windowsLayout) {
+    for (const key of ["main-trackList-trackListRow", "main-card-card"]) aliases.set(key, windowsLayout[key]);
+  }
   const windows = new WeakSet();
   const cache = new Map();
   const mapNames = (s) =>

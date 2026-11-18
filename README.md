@@ -2,11 +2,11 @@
 
 An independent SpotiKit extension that adds a **Spicetify Store** toolbar button, the Spicetify compatibility API, and a separate library of community packages. The Spicetify CLI and a development server are unnecessary.
 
-The compatibility layer was tested in Spotify **1.3.9.2055** on Apple Silicon macOS with SpotiKit **0.9.1**. Windows desktop compatibility is unverified.
+The declared Spotify build is **1.3.9.2055**, tested in the desktop client on Apple Silicon macOS with SpotiKit **0.9.1**. Browser tests cover the store button and legacy track-row and card selectors using the Windows x64 layouts from Spotify **1.3.9.2055** and **1.3.10.2586**. Playback and sign-in on a live Windows client remain unverified.
 
 ## Install
 
-Open the shopping bag in Spotify to enter SpotiKit’s Marketplace. Choose **Extensions**, search for **Spicetify Store**, and select **Install**. You can also open the listing by pasting the extension’s GitHub repository address into the Marketplace’s link button. Once installed, open **Spicetify Store** from the top toolbar.
+Open the shopping bag in Spotify to enter SpotiKit’s Marketplace. Choose **Extensions**, search for **Spicetify Store**, and select **Install**. If the listing is missing, click **Reload the catalog** (the circular arrow beside search). You can also click **Install from a GitHub link** (the chain icon) and paste `https://github.com/saltacc/spicetify-store`. Once installed, open **Spicetify Store** from the top toolbar.
 
 ### Install from a release ZIP
 
@@ -16,7 +16,7 @@ Open the shopping bag in Spotify to enter SpotiKit’s Marketplace. Choose **Ext
 
 Browse loads public GitHub topic catalogs and the upstream snippet collection. Search filters the entries loaded so far. **Import package** accepts an owner/repository, a manifest or direct HTTPS link, or a local file. Save a repository or manifest as a catalog source and manage it from Settings. The first two extension listings ship as metadata and can be downloaded directly even when GitHub search is rate-limited. Installed scripts and bundled resources load from IndexedDB on subsequent starts. External services used by an extension can still require a network connection.
 
-For custom apps, the store checks the author’s releases first. If Spotify cannot fetch a release ZIP, the store links to the publisher’s file. Download it and choose **Install downloaded ZIP** in the same dialog. For an existing app, use **Updates → Check → Update from ZIP**. This updates the existing entry and keeps its rollback history. The store checks the archive against GitHub’s SHA-256 checksum when the publisher’s release includes one.
+For custom apps, the store checks the author’s releases first. If Spotify cannot fetch a release ZIP, the store links to the publisher’s file. Download it and choose **Install downloaded ZIP** in the same dialog. For an existing app, use **Updates → Check → Update from ZIP**. This updates the existing entry and keeps its rollback history. The store checks the archive against GitHub’s SHA-256 checksum when the publisher’s release includes one. ZIP imports accept Windows path separators and UTF-8 or BOM-marked UTF-16 text. They use exact filename spelling first, then accept a unique case-insensitive match.
 
 ## Package support
 

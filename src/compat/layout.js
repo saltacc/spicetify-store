@@ -1,3 +1,47 @@
+// Observed in Spotify's Windows x64 1.3.10.2586 UI. SpotiKit 0.9.2 ships
+// without a class map for this build. Always defer to a map supplied by the host.
+const windowsClasses = {
+  history: "Tpe_EXbFoHioEukq1L3y",
+  "main-trackList-trackListRow": "xwwlUJUZLpjPnZByq04Y",
+  "main-card-card": "ofahUhwV8VMlglXFA3hw",
+};
+
+export function unmappedWindowsClasses(host) {
+  const platform = host.build?.platform || navigator.userAgentData?.platform || navigator.platform;
+  if (!/^win/i.test(platform) || !/^1\.3\.10\.2586(?:[.+-]|$)/.test(host.Platform?.version) ||
+      (host.build?.architecture && !/^(?:x64|amd64|x86_64)$/i.test(host.build.architecture)) ||
+      Object.keys(host.classMap || {}).length) return null;
+  return windowsClasses;
+}
+
+export function installWindowsToolbar(host, onStop) {
+  const layout = unmappedWindowsClasses(host);
+  if (!layout) return;
+  const stable = "global-nav-bar-history-buttons";
+  let bar, owned = false;
+  const observer = new MutationObserver(update);
+  function update() {
+    if (!bar?.isConnected || !bar.classList.contains(layout.history)) {
+      if (owned) bar.classList.remove(stable);
+      // Observe the mounted bar's own class as well as replacements of the bar.
+      observer.disconnect();
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+      bar = document.querySelector("." + layout.history);
+      owned = false;
+      if (bar) observer.observe(bar, { attributes: true, attributeFilter: ["class"] });
+    }
+    if (bar && !bar.classList.contains(stable)) {
+      bar.classList.add(stable);
+      owned = true;
+    }
+  }
+  update();
+  onStop(() => {
+    observer.disconnect();
+    if (owned) bar.classList.remove(stable);
+  });
+}
+
 // Some legacy insertion points have two native layouts. Mark the elements so
 // stylesheets, DOM queries and live class collections all find the same node.
 export function installLayoutMounts(win, hostMap, aliases, onStop) {

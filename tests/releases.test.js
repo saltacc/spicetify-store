@@ -94,7 +94,9 @@ test("branch-only apps still load and a shared root cannot supply its sibling", 
     const root = "https://raw.githubusercontent.com/" + repo + "/" + distRef + "/";
     if (url === api + "/commits/dist") return Response.json({ sha: distRef });
     if (url === root + "index.js") return new Response("function render() { return null; }");
-    if (url === root + "manifest.json") return Response.json({ name: rootName });
+    if (url === root + "manifest.json") return new Response(Buffer.from("\ufeff" +
+      JSON.stringify({ name: rootName, subfiles: ["Ui\\My #Script.js"] }), "utf16le"));
+    if (url === root + "Ui/My%20%23Script.js") return new Response("const label = 'Artist';");
     return new Response(null, { status: 404 });
   });
   await assert.rejects(resolvePackage(stats), /No compatible built app/);
@@ -102,6 +104,7 @@ test("branch-only apps still load and a shared root cannot supply its sibling", 
   const pkg = await resolvePackage(stats);
   assert.equal(pkg.item.id, stats.id);
   assert.equal(pkg.revision, "b".repeat(40));
+  assert.equal(pkg.files[1].path, "Ui/My #Script.js");
   await assert.rejects(resolvePackage({ ...stats, revision: "stats-v2" }), /no longer lists a release ZIP/);
 });
 

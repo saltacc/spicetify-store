@@ -54,13 +54,15 @@ const files = {
   ],
 };
 const server = createServer(async (req, res) => {
-  const name = new URL(req.url, "http://localhost").pathname;
+  const url = new URL(req.url, "http://localhost");
+  const name = url.pathname;
   if (name === "/") {
     res.setHeader("Content-Type", "text/html");
     res.end(
       '<!doctype html><meta charset="utf-8"><style>body{margin:0;background:#191918;color:#fff;font:14px system-ui}#bar{padding:7px 16px;background:#121212}#bar button{color:#eee;background:#353432;border:0;border-radius:15px;padding:6px 12px}</style><div id="bar"></div>' +
       '<div class="main-view-panel"><div class="main-view-container__scroll-node"><main id="root"></main></div></div>' +
-      '<script src="/react.js"></script><script src="/react-dom.js"></script><script src="/host.js"></script><script src="/loader.js"></script>',
+      '<script src="/react.js"></script><script src="/react-dom.js"></script><script src="/host.js"></script>' +
+      (url.searchParams.has("windows") ? '<script src="/bars.js"></script>' : '') + '<script src="/loader.js"></script>',
     );
     return;
   }
@@ -197,6 +199,62 @@ try {
     );
   await page.goto(base);
   await ready();
+  const snapshot = JSON.parse(await readFile(path.join(repo, "classmaps/1.3.9.2055/snapshot.json"), "utf8"));
+  const windowsMap = Object.fromEntries(Object.entries(snapshot.classes).map(([key, record]) => [key, record.stable]));
+  for (const mode of ["mapped", "unmapped", "paused"]) {
+    const mapped = mode === "mapped";
+    const win = await browser.newContext({
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36",
+    });
+    await win.route(/^https:/, (route) => route.fulfill({ json: { items: [], repos: [] } }));
+    await win.addInitScript((fixture) => { window.windowsFixture = fixture; }, {
+      classMap: mapped ? windowsMap : {}, version: mapped ? "1.3.9.2055" : "1.3.10.2586.g81a118a22460",
+      paused: mode === "paused",
+    });
+    const p = await win.newPage();
+    p.setDefaultTimeout(6500);
+    await p.goto(base + "/?windows");
+    await p.waitForFunction(() => window.qa?.ready);
+    const history = mapped ? "global-nav-bar-history-buttons" : "Tpe_EXbFoHioEukq1L3y";
+    await p.evaluate((cls) => {
+      const bar = document.createElement("div");
+      bar.className = cls;
+      bar.append(document.createElement("button"));
+      document.body.prepend(bar);
+    }, history);
+    const storeButton = p.locator("." + history).getByRole("button", { name: "Spicetify Store", exact: true });
+    await storeButton.click();
+    await p.getByRole("heading", { name: "Spicetify Store" }).waitFor();
+    if (mode === "paused") await p.getByText("Legacy startup is paused").first().waitFor();
+    else {
+      await p.evaluate((mapped) => {
+        const scene = document.createElement("div");
+        scene.innerHTML = '<div id="windows-card"><div id="windows-row"></div></div><style></style>';
+        scene.firstChild.className = mapped ? "entity-card" : "ofahUhwV8VMlglXFA3hw";
+        scene.firstChild.firstChild.className = mapped ? "track-list-row" : "xwwlUJUZLpjPnZByq04Y";
+        scene.lastChild.textContent = ".main-card-card .main-trackList-trackListRow:hover{--legacy-hover:yes}";
+        document.body.append(scene);
+        scene.firstChild.firstChild.textContent = "A track";
+      }, mapped);
+      const row = p.locator("#windows-row");
+      await row.hover();
+      await p.waitForFunction(() =>
+        document.querySelector(".main-card-card .main-trackList-trackListRow")?.id === "windows-row" &&
+        getComputedStyle(document.querySelector("#windows-row")).getPropertyValue("--legacy-hover") === "yes");
+    }
+    await p.evaluate((cls) => {
+      const old = document.querySelector("." + cls);
+      const fresh = document.createElement("div");
+      fresh.className = cls;
+      old.replaceWith(fresh);
+    }, history);
+    await storeButton.waitFor();
+    await p.evaluate(() => SpotiKit._internal.addons.stop("extension:spicetify-store/dist/extension.js"));
+    await storeButton.waitFor({ state: "detached" });
+    assert.equal(await p.locator(".global-nav-bar-history-buttons").count(), mapped ? 1 : 0);
+    await win.close();
+  }
+  console.log("PASS Windows track rows, cards, native toolbar, remount, paused startup and cleanup");
   await page.evaluate(() => {
     const scene = document.createElement("section");
     scene.id = "legacy-fixture";
@@ -397,27 +455,31 @@ try {
     "active",
   );
   const appZip = zipSync({
-    "qa-app/index.js": strToU8(`function render() {
+    "qa-app\\Index.JS": strToU8(`function render() {
       if (Spicetify.Platform.History.location.pathname === "/qa-app/broken")
         throw new Error("App render fixture failed");
       const viewport = document.querySelector(".Root__main-view .main-view-container__scroll-node");
       if (!viewport) throw new Error("Missing main scroll container");
       return Spicetify.ReactDOM.createPortal(
-        Spicetify.React.createElement("p", null, label()),
+        Spicetify.React.createElement("p", { "data-qa-asset": "assets/COVER.svg" }, label()),
         viewport
       );
     }`),
-    "qa-app/sub.js": strToU8("function label(){return 'The classic app mounted';}"),
+    "qa-app\\Ui\\Sub.JS": strToU8("function label(){return 'The classic app mounted';}"),
     "qa-app/side.js": strToU8("window.qaAppSide=(window.qaAppSide || 0)+1;"),
-    "qa-app/manifest.json": strToU8(
-      JSON.stringify({ name: "QA App", subfiles: ["sub.js"], subfiles_extension: ["side.js"] }),
-    ),
+    "qa-app\\Assets\\Cover.SVG": strToU8('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>'),
+    "qa-app/Style.CSS": strToU8('[data-qa-asset]{background-image:url("./assets/cover.svg")}'),
+    "qa-app\\Manifest.JSON": Buffer.from("\ufeff" + JSON.stringify({
+      name: "QA App", subfiles: ["ui\\SUB.js"], subfiles_extension: ["Side.js"],
+    }), "utf16le"),
   });
   await local("qa-app.zip", appZip, "application/zip");
   await nav("Installed");
   await button("Open app", row("QA App")).click();
   const portal = page.locator(".main-view-container__scroll-node > p").filter({ hasText: "The classic app mounted" });
   await portal.waitFor();
+  assert.match(await portal.getAttribute("data-qa-asset"), /^data:image\/svg\+xml;base64,/);
+  assert.match(await portal.evaluate((el) => getComputedStyle(el).backgroundImage), /data:image\/svg\+xml;base64,/);
   assert.ok(await page.evaluate(() => {
     const copy = { ...Spicetify.ReactDOM };
     return copy.createPortal === SpotiKit.ReactDOM.createPortal &&

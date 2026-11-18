@@ -168,6 +168,15 @@ const host = (window.SpotiKit = {
     },
   },
 });
+if (window.windowsFixture) {
+  qa.route = "/collection";
+  host.classMap = windowsFixture.classMap;
+  host.Platform.version = windowsFixture.version;
+  host.build = { platform: "windows", architecture: "x64" };
+  host.Icons = { has: () => false };
+  host.Tooltip = { attach: () => ({ setContent() {}, remove() {} }) };
+  if (windowsFixture.paused) localStorage.setItem("spotikit:spicetify-store:paused", "1");
+}
 qa.track = (metadata) => {
   qaState.item.metadata = metadata;
   playerEvents.emit("track", qaState);

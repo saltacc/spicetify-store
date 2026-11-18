@@ -1,4 +1,5 @@
 import bundledExclusions from "../data/exclusions.json" with { type: "json" };
+import { readText } from "./package-files.js";
 
 export const topics = { extension: "spicetify-extensions", theme: "spicetify-themes", app: "spicetify-apps" };
 export const upstream = "https://raw.githubusercontent.com/spicetify/marketplace/main/";
@@ -72,7 +73,7 @@ export async function download(url, { signal, limit = MAX_BYTES, optional = fals
 }
 export async function json(url, options) {
   const blob = await download(url, { limit: 4 * 1024 * 1024, ...options });
-  return blob ? JSON.parse(await blob.text()) : null;
+  return blob ? JSON.parse(await readText(blob)) : null;
 }
 export function raw(repo, ref, path = "") {
   return (

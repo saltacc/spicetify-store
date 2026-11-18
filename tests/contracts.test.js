@@ -123,6 +123,12 @@ test("cross-build aliases require the stable target and respect an exact native 
     "div.now-playing-bar-extra-controls");
   assert.equal(classAliases({ root: "app-layout", x: "other-grid" }, { x: "Root__top-container" })
     .get("Root__top-container"), "other-grid");
+  const windows = classAliases({ xwwlUJUZLpjPnZByq04Y: "track-list-row", ofahUhwV8VMlglXFA3hw: "entity-card" });
+  assert.equal(rewriteCss(".main-card-card .main-trackList-trackListRow:hover", windows, "selectorList"),
+    ".entity-card .track-list-row:hover");
+  assert.equal(classAliases({}).has("main-card-card"), false);
+  assert.equal(classAliases({ card: "entity-card", old: "another-card" }, { old: "main-card-card" })
+    .get("main-card-card"), "another-card");
 });
 test("palettes isolate unusable sections and honor RGB and Xresources literals", () => {
   const skipped = [];
@@ -203,6 +209,50 @@ test("app ZIP validates paths, sidecars and one built entry", async () => {
   );
   assert.equal(pkg.item.route, "demo");
   await assert.rejects(fromZip(zipSync({ "../index.js": strToU8("bad") }), "bad"), /Invalid/);
+});
+test("Windows app ZIPs preserve declared order, original filenames and BOM-marked text", async () => {
+  const manifest = { name: "Mélodie", subfiles: ["Ui\\B.js", "Ui/A.js"], subfiles_extension: ["HELPER.JS"] };
+  const zip = zipSync({
+    "demo\\": new Uint8Array(),
+    "demo\\INDEX.JS": Buffer.from("\ufefffunction render(){return label();}\r\n", "utf16le"),
+    "Demo\\MANIFEST.JSON": Buffer.from("\ufeff" + JSON.stringify(manifest), "utf16le"),
+    "DEMO/ui/b.js": strToU8("\ufeffconst note = '音';"),
+    "demo\\UI\\A.JS": Buffer.from("\ufefffunction label(){return note;}", "utf16le").swap16(),
+    "demo\\Style.CSS": strToU8("p { color: red }"),
+    "demo\\Helper.js": strToU8("void 0"),
+    "demo\\Assets\\Cover.PNG": Uint8Array.of(1, 2, 3),
+    "__MACOSX\\other\\index.js": strToU8("ignored"),
+  });
+  const pkg = await fromZip(zip, "local");
+  assert.equal(pkg.item.name, "Mélodie");
+  assert.deepEqual(pkg.files.map((f) => [f.role, f.path]), [
+    ["app", "INDEX.JS"], ["subfile", "ui/b.js"], ["subfile", "UI/A.JS"], ["style", "Style.CSS"],
+    ["script", "Helper.js"], ["asset", "Assets/Cover.PNG"],
+  ]);
+  assert.equal(pkg.files[0].text, "function render(){return label();}\r\n");
+  assert.equal(pkg.files[1].text, "const note = '音';");
+  assert.equal(pkg.files[2].text, "function label(){return note;}");
+  assert.equal(pkg.files.at(-1).text, "data:image/png;base64,AQID");
+  const css = "body { --label: '音' }";
+  const local = await localPackage(new File([Buffer.from("\ufeff" + css, "utf16le")], "snippet.CSS"));
+  assert.equal(local.files[0].text, css);
+});
+test("ZIP lookup preserves case-sensitive siblings and refuses ambiguous or duplicate files", async () => {
+  const index = strToU8("function render(){return null;}");
+  const files = { "demo/index.js": index, "demo/UI.js": strToU8("upper"), "demo/ui.js": strToU8("lower") };
+  const pack = (path) => zipSync({ ...files, "demo/manifest.json": strToU8(JSON.stringify({ subfiles: [path] })) });
+  assert.equal((await fromZip(pack("UI.js"), "app")).files[1].text, "upper");
+  assert.equal((await fromZip(pack("ui.js"), "app")).files[1].text, "lower");
+  await assert.rejects(fromZip(pack("Ui.Js"), "app"), /Ambiguous app file/);
+  await assert.rejects(fromZip(zipSync({ ...files, "demo\\UI.js": strToU8("duplicate") }), "app"), /duplicate/);
+  await assert.rejects(fromZip(zipSync({ ...files, "Demo/UI.js": strToU8("duplicate") }), "app"), /Duplicate/);
+  const siblings = zipSync({
+    "one/index.js": index, "one/manifest.json": strToU8('{"name":"First","subfiles":["ui.js"]}'),
+    "one/ui.js": strToU8("first"), "ONE/index.js": index,
+    "ONE/manifest.json": strToU8('{"name":"Second","subfiles":["ui.js"]}'), "ONE/ui.js": strToU8("second"),
+  });
+  const second = await fromZip(siblings, "apps", localItem("Second", "app"), true);
+  assert.equal(second.files[1].text, "second");
 });
 test("backup verification is atomic, detects changed bytes and disables imported scripts", async () => {
   const item = localItem("Example", "extension", "demo"),

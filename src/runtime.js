@@ -1,6 +1,7 @@
 import { createFacade } from "./compat/index.js";
 import { colorCss, defaultColors, installAliases, parseSchemes, rewriteCss } from "./compat/styles.js";
 import { executable } from "./loaders.js";
+import { pathLookup } from "./package-files.js";
 
 const ledgerKey = Symbol.for("spotikit.spicetify-store.executions");
 const reserved = new Set(
@@ -158,6 +159,7 @@ export function createRuntime(host, diagnose) {
   }
   function renderStyles(run, pkg, scheme) {
     const assets = new Map(pkg.files.filter((f) => f.role === "asset").map((f) => [f.path, f.text]));
+    const findAsset = pathLookup(assets);
     const styles = [];
     for (const file of pkg.files) {
       if (file.role === "schemes") {
@@ -180,9 +182,9 @@ export function createRuntime(host, diagnose) {
       if (file.role === "style")
         styles.push(
           rewriteCss(file.text, aliases, "stylesheet", (value) => {
-            if (!assets.size || /^(?:[a-z]+:|#)/i.test(value)) return;
+            if (!assets.size || /^(?:[a-z]+:|\/\/|#)/i.test(value)) return;
             const key = new URL(value, new URL(file.path, "https://app.invalid/")).pathname.slice(1);
-            return assets.get(decodeURIComponent(key));
+            return assets.get(findAsset(decodeURIComponent(key)));
           }),
         );
     }
@@ -211,14 +213,16 @@ export function createRuntime(host, diagnose) {
       throw new Error(
         "This app needs a self-contained classic build. Module imports and workers require an app-specific adapter.",
       );
-    if (assets.size)
+    if (assets.size) {
+      const findAsset = pathLookup(assets);
       source = source.replace(
-        /(["'])([./\w -]+\.(?:png|jpe?g|gif|svg|webp|woff2?|ttf|ico))\1/gi,
-        (match, quote, path) =>
-          assets.has(path.replace(/^\.\//, ""))
-            ? JSON.stringify(assets.get(path.replace(/^\.\//, "")))
-            : match,
+        /(["'])((?:[./\w -]|\\\\)+\.(?:png|jpe?g|gif|svg|webp|woff2?|ttf|otf|ico))\1/gi,
+        (match, quote, path) => {
+          const actual = findAsset(path.replaceAll("\\\\", "/").replace(/^\.\//, ""));
+          return actual ? JSON.stringify(assets.get(actual)) : match;
+        },
       );
+    }
     const generated = blobSource(
       run,
       source + "\nexport default typeof render === 'function' ? render : null;",

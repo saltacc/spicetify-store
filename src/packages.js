@@ -4,9 +4,9 @@ import { commit, download, httpsUrl, json, MAX_BYTES, normalize, raw, upstream }
 import { parseSchemes, rewriteCss } from "./compat/styles.js";
 import { codeScope, executable, inspectScript } from "./loaders.js";
 import { appNames, appSlug, findAppRelease, ReleaseFileRequired } from "./releases.js";
+import { decodeText, pathLookup, readText, relativePath } from "./package-files.js";
 
 const encoder = new TextEncoder();
-const utf8 = new TextDecoder();
 const roles = new Set(["script", "module", "loader", "app", "subfile", "style", "schemes", "asset"]);
 const kinds = new Set(["theme", "app", "snippet", "extension"]);
 const mimeTypes = {
@@ -26,13 +26,6 @@ const mimeTypes = {
 function ext(path) {
   return path.split(/[?#]/)[0].split(".").pop().toLowerCase();
 }
-const safePath = (path) =>
-  typeof path === "string" &&
-  !!path &&
-  !/[\\\0]/.test(path) &&
-  !path.startsWith("/") &&
-  !/^[a-z]:/i.test(path) &&
-  path.split("/").every((p) => p && p !== "." && p !== "..");
 export async function sha(text) {
   const bytes = await crypto.subtle.digest("SHA-256", typeof text === "string" ? encoder.encode(text) : text);
   return [...new Uint8Array(bytes)].map((n) => n.toString(16).padStart(2, "0")).join("");
@@ -121,44 +114,55 @@ export function zipApps(bytes) {
   let total = 0,
     count = 0;
   const seen = new Set();
-  const paths = unzipSync(bytes, {
+  const entries = unzipSync(bytes, {
     filter(f) {
-      if (f.name.endsWith("/") || f.name.startsWith("__MACOSX/")) return false;
-      if (++count > 512 || !safePath(f.name) || seen.has(f.name))
+      const name = f.name.replaceAll("\\", "/");
+      const directory = name.endsWith("/");
+      const path = relativePath(directory ? name.slice(0, -1) : name);
+      if (directory || path.startsWith("__MACOSX/")) return false;
+      if (++count > 512 || seen.has(path))
         throw new Error("Invalid or duplicate ZIP entry.");
-      seen.add(f.name);
+      seen.add(path);
       total += f.originalSize;
       if (total > MAX_BYTES) throw new Error("Uncompressed ZIP exceeds the package size limit.");
       return true;
     },
   });
-  return Object.keys(paths)
-    .filter((path) => /(^|\/)index\.js$/.test(path))
-    .map((path) => {
-      const folder = path.slice(0, -8);
-      const manifest = paths[folder + "manifest.json"]
-        ? JSON.parse(utf8.decode(paths[folder + "manifest.json"]))
-        : {};
-      const texts = new Map(),
-        assets = new Map();
-      for (const [name, body] of Object.entries(paths)) {
-        if (!name.startsWith(folder)) continue;
-        const relative = name.slice(folder.length);
-        if (/\.(?:css|m?js|json)$/i.test(name)) texts.set(relative, utf8.decode(body));
-        else if (mimeTypes[ext(name)]) assets.set(relative, dataUrl(body, mimeTypes[ext(name)]));
-      }
-      return { folder: folder.split("/").filter(Boolean).pop(), manifest, texts, assets };
-    });
+  const files = new Map(), folders = new Set();
+  for (const [name, bytes] of Object.entries(entries)) {
+    const path = name.replaceAll("\\", "/");
+    if (/(^|\/)index\.js$/i.test(path)) folders.add(path.slice(0, -8));
+    if (/\.(?:css|m?js|json)$/i.test(path)) files.set(path, { text: decodeText(bytes) });
+    else if (mimeTypes[ext(path)]) files.set(path, { asset: dataUrl(bytes, mimeTypes[ext(path)]) });
+  }
+  const findFolder = pathLookup(folders);
+  return [...folders].map((folder) => {
+    const texts = new Map(), assets = new Map();
+    for (const [name, file] of files) {
+      if (findFolder(name.slice(0, folder.length)) !== folder) continue;
+      const relative = name.slice(folder.length);
+      if (texts.has(relative) || assets.has(relative)) throw new Error("Duplicate app file " + relative + ".");
+      if (file.asset !== undefined) assets.set(relative, file.asset);
+      else texts.set(relative, file.text);
+    }
+    const manifestPath = pathLookup(texts)("manifest.json");
+    if (manifestPath === null) throw new Error("Ambiguous app file manifest.json.");
+    const manifest = manifestPath ? JSON.parse(texts.get(manifestPath)) : {};
+    return { folder: folder.split("/").filter(Boolean).pop(), manifest, texts, assets };
+  });
 }
 function appFiles(item, folder, manifest, texts, assets) {
   const files = [];
-  function take(role, path) {
-    if (!safePath(path) || !texts.has(path)) throw new Error("Missing app file " + path + ".");
-    files.push({ role, path, text: texts.get(path) });
+  const findText = pathLookup(texts);
+  function take(role, requested, optional = false) {
+    const path = findText(relativePath(requested));
+    if (path === null) throw new Error("Ambiguous app file " + requested + ".");
+    if (path) files.push({ role, path, text: texts.get(path) });
+    else if (!optional) throw new Error("Missing app file " + requested + ".");
   }
   take("app", "index.js");
   for (const path of manifest.subfiles || []) take("subfile", path);
-  if (texts.has("style.css")) take("style", "style.css");
+  take("style", "style.css", true);
   for (const path of manifest.subfiles_extension || []) take("script", path);
   if (
     !/\brender\b/.test(
@@ -201,7 +205,7 @@ async function readLocalPackage(file) {
   if (!/\.(?:m?js|css)$/i.test(file.name)) throw new Error("Choose a JavaScript, CSS or built app ZIP file.");
   const kind = ext(file.name) === "css" ? "snippet" : "extension";
   return makePackage(localItem(file.name, kind), [
-    { role: kind === "snippet" ? "style" : "script", path: file.name, text: await file.text() },
+    { role: kind === "snippet" ? "style" : "script", path: file.name, text: await readText(file) },
   ]);
 }
 async function fetchedStyles(text, address, signal, budget, visited = new Set()) {
@@ -236,7 +240,7 @@ async function fetchedStyles(text, address, signal, budget, visited = new Set())
     if (!resource) throw new Error("Missing stylesheet asset " + path);
     budget.left -= resource.size;
     if (ext(path) === "css") {
-      const css = await fetchedStyles(await resource.text(), url, signal, budget, chain);
+      const css = await fetchedStyles(await readText(resource), url, signal, budget, chain);
       urls.set(path, dataUrl(encoder.encode(css), "text/css"));
     } else
       urls.set(
@@ -298,21 +302,21 @@ async function builtApp(item, apps, original, signal) {
         if (!index) continue;
         const manifest = (await json(httpsUrl("manifest.json", base), { signal, optional: true })) || {};
         if (apps.length > 1 && !matchesApp(names, folder.slice(0, -1), manifest)) continue;
-        const texts = new Map([["index.js", await index.text()]]);
-        for (const path of [
+        const texts = new Map([["index.js", await readText(index)]]);
+        for (const declared of [
           ...(manifest.subfiles || []),
           ...(manifest.subfiles_extension || []),
           "style.css",
         ]) {
-          if (!safePath(path)) throw new Error("Invalid app path.");
-          const url = httpsUrl(path, base),
+          const path = relativePath(declared);
+          const url = raw(repo, ref, folder + path),
             file = await download(url, { signal, optional: path === "style.css" });
           if (file)
             texts.set(
               path,
               path === "style.css"
-                ? await fetchedStyles(await file.text(), url, signal, { left: MAX_BYTES })
-                : await file.text(),
+                ? await fetchedStyles(await readText(file), url, signal, { left: MAX_BYTES })
+                : await readText(file),
             );
         }
         return appFiles({ ...item, revision: ref, buildBranch: branch }, folder.slice(0, -1) || slug, manifest, texts, new Map());
@@ -383,7 +387,7 @@ async function readPublishedPackage(original, signal) {
     budget.left -= blob.size;
     if (budget.left < 0) throw new Error("Package exceeds the size limit.");
     if (f.role === "archive") return fromZip(new Uint8Array(await blob.arrayBuffer()), item.name, item);
-    let text = await blob.text();
+    let text = await readText(blob);
     if (f.role === "style") text = await fetchedStyles(text, url, signal, budget);
     files.push({ role: f.role, path: f.path, text });
   }
@@ -408,7 +412,7 @@ async function captureLoaders(pkg, signal) {
       if (!target.module && /\.mjs(?:$|[?#])/i.test(target.url)) break;
       const body = await download(target.url, { signal, limit: remaining });
       remaining -= body.size;
-      const child = { role: target.module ? "module" : "script", path: target.url, text: await body.text() };
+      const child = { role: target.module ? "module" : "script", path: target.url, text: await readText(body) };
       // Blob URLs change the base of import.meta and relative module imports.
       // Keep the original loader when its target needs the original URL.
       if (inspectScript(child).needsOrigin && !inspectScript(child).direct) break;
