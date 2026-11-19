@@ -2,7 +2,7 @@
 
 An independent SpotiKit extension that adds a **Spicetify Store** toolbar button, the Spicetify compatibility API, and a separate library of community packages. The Spicetify CLI and a development server are unnecessary.
 
-The declared Spotify build is **1.3.9.2055**, tested in the desktop client on Apple Silicon macOS with SpotiKit **0.9.1**. Browser tests cover the store button and legacy track-row and card selectors using the Windows x64 layouts from Spotify **1.3.9.2055** and **1.3.10.2586**. Playback and sign-in on a live Windows client remain unverified.
+The Store supports Spotify desktop **1.3.9.2055 through 1.3.10.2586**. **1.3.10.2586** is the current stable desktop build as of November 19, 2026. See [Validation](#validation) for platform coverage.
 
 ## Install
 
@@ -107,7 +107,8 @@ Open **Settings → Licenses and source** to save the full notices or the source
 | Unchanged autoSkipExplicit.js and autoSkipVideo.js, menu toggle, track metadata, and skip requests | SpotiKit 0.9.1 local loader and app route in Chromium with simulated playback |
 | Offline restart, update failure, pinning, rollback, themes, snippets, built app, profiles, and startup recovery | Reproducible Chromium integration suite |
 | Custom app portals, the main scroll container, and switching to either store after a render failure | SpotiKit route registration with real React in Chromium |
-| Manifest discovery and bytes written to XPUI | Native .NET AddonCatalog and XpuiPatcher on a temporary archive |
+| Manifest discovery and byte-for-byte extension injection | SpotiKit 0.9.2 on a temporary copy of the Apple Silicon Spotify 1.3.10.2586 UI archive from Spotify’s installer |
+| Store toolbar, legacy track rows, and card selectors | Chromium with Windows x64 layout fixtures from Spotify 1.3.9.2055 and 1.3.10.2586 |
 | Signed-in Spotify desktop playback and Playlist Maker’s Result tab | Spotify 1.3.9.2055 on Apple Silicon macOS with SpotiKit 0.9.1 |
 
 Pinned example source and upstream API contracts are available from the Spicetify project. [Example scripts](https://github.com/spicetify/cli/tree/0b4653f6e6f15efd88119aad96386fb309e81477/Extensions) · [Extension documentation](https://spicetify.app/docs/development/extensions)
