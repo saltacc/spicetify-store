@@ -209,14 +209,10 @@ export function createRuntime(host, diagnose) {
     const assets = new Map(files.filter((f) => f.role === "asset").map((f) => [f.path, f.text]));
     const parts = files.filter((f) => ["app", "subfile"].includes(f.role)).map((f) => f.text);
     let source = parts.join("\n;\n");
-    if (
-      /^\s*(?:import\s+(?!\()|export\s+)|\b(?:import\s*\(\s*["']\.|new\s+(?:Shared)?Worker\s*\()/m.test(
-        source,
-      )
-    )
-      throw new Error(
-        "This app needs a self-contained classic build. Module imports and workers require an app-specific adapter.",
-      );
+    // The browser resolves worker URLs if the app creates a worker. Bundled
+    // libraries can include optional worker code that never runs.
+    if (/^\s*(?:import\s+(?!\()|export\s+)|\bimport\s*\(\s*["']\./m.test(source))
+      throw new Error("This app needs a self-contained classic build. Bundle its module dependencies before installing.");
     if (assets.size) {
       const findAsset = pathLookup(assets);
       source = source.replace(

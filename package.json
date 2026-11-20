@@ -1,6 +1,6 @@
 {
   "name": "spotikit-spicetify-store",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Spicetify compatibility and an independent store for SpotiKit",
   "private": true,
   "type": "module",

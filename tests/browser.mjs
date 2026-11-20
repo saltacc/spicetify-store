@@ -495,7 +495,8 @@ try {
     "active",
   );
   const appZip = zipSync({
-    "qa-app\\Index.JS": strToU8(`function render() {
+    "qa-app\\Index.JS": strToU8(`function createOptionalWorker(url) { return new Worker(url); }
+    function render() {
       if (Spicetify.Platform.History.location.pathname === "/qa-app/broken")
         throw new Error("App render fixture failed");
       const viewport = document.querySelector(".Root__main-view .main-view-container__scroll-node");

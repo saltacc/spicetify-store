@@ -26,7 +26,7 @@ For custom apps, the store checks the author’s releases first. If Spotify cann
 | Themes | Manifest with usercss, schemes and optional include scripts. Each palette is validated independently. Eight-digit hex uses the CLI’s first three color channels. Xresources expressions can supply a literal fallback. Package details list skipped palettes. |
 | Snippets | Community CSS, local CSS files, and named snippets authored and edited under Installed. Reorder snippets to control precedence. |
 | Apps | Built classic app ZIP or a supported distribution branch/release. Accepts index.js defining render(), ordered subfiles, accompanying extension scripts, style.css, and bundled static image/font assets. Subroutes use the host’s app route. |
-| Source builds | JSX, npm builds, relative module graphs, custom workers, and arbitrary dynamic asset paths require a prebuilt compatible distribution or an adapter. A package that depends on private Spotify modules needs testing on the installed client. |
+| Source builds | JSX, npm builds, relative module graphs, package-relative worker scripts, and arbitrary dynamic asset paths require a prebuilt compatible distribution or an adapter. A package that depends on private Spotify modules needs testing on the installed client. |
 
 The alias adapter uses the bundled Spicetify class dictionary, the active SpotiKit class map, and verified layout equivalents. It supplies legacy cover, track-info, library-row and navigation insertion points when the corresponding host elements exist. Legacy tooltips expose their content element, placement and lifecycle callbacks through Tippy.
 
